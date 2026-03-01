@@ -97,31 +97,58 @@ async function main() {
   let repos: RepoSummary[] = [];
   let allPRs: PRData[] = [];
   let allCommits: CommitData[] = [];
+  let fetchedRepos: string[] = [];
   let usedCache = false;
 
   const cached = loadCache(org, days);
   if (cached) {
-    const useCache = await p.confirm({
-      message: `Found cached data from ${cacheAge(cached.cachedAt)} — use it? ${chalk.dim("(saves API calls)")}`,
-      initialValue: true,
-    });
+    const isPartial = !cached.complete;
+    const msg = isPartial
+      ? `Partial cache found (${cached.fetchedRepos.length} repos done) — resume from where it stopped? ${chalk.dim("(saves API calls)")}`
+      : `Cached data from ${cacheAge(cached.cachedAt)} — use it? ${chalk.dim("(saves API calls)")}`;
+
+    const useCache = await p.confirm({ message: msg, initialValue: true });
     if (p.isCancel(useCache)) { p.cancel("Cancelled."); process.exit(0); }
 
     if (useCache) {
       repos = cached.repos.slice(0, isFinite(maxRepos) ? maxRepos : undefined);
       allPRs = cached.prs;
       allCommits = cached.commits;
-      usedCache = true;
-      p.log.success(chalk.green(`Loaded from cache — ${repos.length} repos, ${allPRs.length} PRs, ${allCommits.length} commits`));
+      fetchedRepos = cached.fetchedRepos;
+
+      if (cached.complete) {
+        usedCache = true;
+        p.log.success(chalk.green(`Loaded from cache — ${repos.length} repos, ${allPRs.length} PRs, ${allCommits.length} commits`));
+      } else {
+        p.log.info(chalk.dim(`Resuming — ${fetchedRepos.length}/${repos.length} repos already cached`));
+      }
     }
   }
 
   if (!usedCache) {
     // --- GitHub client ---
     let activeSpinner: ReturnType<typeof ora> | null = null;
+
+    // Shared progressive cache state
+    const cacheState = {
+      cachedAt: new Date().toISOString(),
+      org,
+      since: since.toISOString(),
+      until: until.toISOString(),
+      days,
+      complete: false,
+      fetchedRepos,
+      repos,
+      prs: allPRs,
+      commits: allCommits,
+    };
+
     const octokit = createClient(token, (waitSecs) => {
       activeSpinner?.stop();
       activeSpinner = null;
+
+      // Save whatever we have before exiting
+      saveCache(cacheState);
 
       const resumeAt = new Date(Date.now() + waitSecs * 1000);
       const hh = resumeAt.getHours().toString().padStart(2, "0");
@@ -129,9 +156,8 @@ async function main() {
       const mins = Math.ceil(waitSecs / 60);
 
       console.log();
-      p.log.warn(chalk.yellow(`GitHub rate limit hit.`));
-      p.log.info(`Run again after ${chalk.bold(`${hh}:${mm}`)} (${mins} min from now)`);
-      p.log.info(chalk.dim(`Tip: cached data from a previous run can be reused without hitting the API.`));
+      p.log.warn(chalk.yellow(`GitHub rate limit hit — progress saved (${fetchedRepos.length} repos cached).`));
+      p.log.info(`Run again after ${chalk.bold(`${hh}:${mm}`)} (${mins} min from now) to resume.`);
       console.log();
       process.exit(1);
     });
@@ -156,6 +182,7 @@ async function main() {
     activeSpinner = ora("Fetching repositories…").start();
     repos = await fetchOrgRepos(octokit, org);
     repos = repos.slice(0, isFinite(maxRepos) ? maxRepos : undefined);
+    cacheState.repos = repos;
     activeSpinner.succeed(chalk.green(`Found ${chalk.bold(repos.length)} repos to scan`));
     activeSpinner = null;
 
@@ -164,10 +191,16 @@ async function main() {
       process.exit(0);
     }
 
-    // --- Fetch PRs and commits ---
+    // --- Fetch PRs and commits (progressively cached) ---
     for (let i = 0; i < repos.length; i++) {
       const repo = repos[i];
       const progress = `[${i + 1}/${repos.length}]`;
+
+      // Skip repos already fetched from partial cache
+      if (fetchedRepos.includes(repo.name)) {
+        p.log.info(chalk.dim(`${progress} ${repo.name} — skipped (cached)`));
+        continue;
+      }
 
       activeSpinner = ora(`${progress} PRs — ${chalk.cyan(repo.name)}`).start();
       try {
@@ -193,20 +226,19 @@ async function main() {
         activeSpinner.warn(chalk.yellow(`${progress} ${repo.name} — commits skipped: ${err.message}`));
       }
       activeSpinner = null;
+
+      // Save progress after each repo
+      fetchedRepos.push(repo.name);
+      cacheState.fetchedRepos = fetchedRepos;
+      cacheState.prs = allPRs;
+      cacheState.commits = allCommits;
+      saveCache(cacheState);
     }
 
-    // --- Save cache ---
-    const cacheFile = saveCache({
-      cachedAt: new Date().toISOString(),
-      org,
-      since: since.toISOString(),
-      until: until.toISOString(),
-      days,
-      repos,
-      prs: allPRs,
-      commits: allCommits,
-    });
-    p.log.info(chalk.dim(`Cache saved → ${cacheFile}`));
+    // Mark complete
+    cacheState.complete = true;
+    saveCache(cacheState);
+    p.log.info(chalk.dim(`Cache saved — ${repos.length} repos complete`));
   }
 
   // --- Compute metrics ---

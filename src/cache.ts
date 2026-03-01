@@ -11,6 +11,8 @@ export interface CachePayload {
   since: string;
   until: string;
   days: number;
+  complete: boolean;        // true only when all repos are fetched
+  fetchedRepos: string[];   // repo names fully fetched so far
   repos: RepoSummary[];
   prs: PRData[];
   commits: CommitData[];
@@ -38,10 +40,9 @@ export function loadCache(org: string, days: number): CachePayload | null {
   }
 }
 
-export function saveCache(payload: CachePayload): string {
+export function saveCache(payload: CachePayload): void {
   const file = cacheFile(payload.org, payload.days);
   writeFileSync(file, JSON.stringify(payload, null, 2), "utf-8");
-  return file;
 }
 
 export function cacheAge(cachedAt: string): string {

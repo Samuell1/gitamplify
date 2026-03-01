@@ -1,15 +1,3 @@
-```
-   _____ _ _                            _ _  __
-  / ____(_) |     /\                   | (_)/ _|
- | |  __ _| |_   /  \   _ __ ___  _ __ | |_| |_ _   _
- | | |_ | | __| / /\ \ | '_ ` _ \| '_ \| | |  _| | | |
- | |__| | | |_ / ____ \| | | | | | |_) | | | | | |_| |
-  \_____|_|\__/_/    \_\_| |_| |_| .__/|_|_|_|  \__, |
-                                 | |             __/ |
-                                 |_|            |___/
-  GitHub Org Productivity Analyzer — AI Amplification Metrics
-```
-
 # GitAmplify
 
 > Analyze your GitHub org's productivity and measure AI amplification signals — from the terminal.

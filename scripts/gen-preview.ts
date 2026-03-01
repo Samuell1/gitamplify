@@ -116,7 +116,7 @@ const WIDTH = 72;
 const HEIGHT = outputLines.length + 2;
 const header = JSON.stringify({ version: 2, width: WIDTH, height: HEIGHT, title: "GitAmplify" });
 const events = outputLines.map((line, i) =>
-  JSON.stringify([i * 0.05, "o", line + "\r\n"])
+  JSON.stringify([i * 0.35, "o", line + "\r\n"])
 );
 const cast = [header, ...events].join("\n");
 
